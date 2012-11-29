@@ -18,6 +18,7 @@
   f(IntIntMap) \
   f(IntDoubleMap) \
   f(IntIntPairMap) \
+  f(IntPairVecVec) \
   f(IntPairDoubleMap) \
   f(IntSet) \
   f(DoubleVec) \

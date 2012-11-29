@@ -67,8 +67,9 @@ typedef IntPair _;
 
 StrDB db;                // word database
 IntVec phrase_freqs;     // phrase a < N -> number of times a appears in the text
-IntVecVec left_phrases;  // phrase a < N -> list of phrases that appear to left of a in the text
-IntVecVec right_phrases; // phrase a < N -> list of phrases that appear to right of a in the text
+
+IntPairVecVec left_phrases;  // phrase a < N -> list of phrases that appear to left of a in the text
+IntPairVecVec right_phrases; // phrase a < N -> list of phrases that appear to right of a in the text
 IntIntPairMap cluster_tree; // cluster c -> the 2 sub-clusters that merged to create c
 int delim_word;
 
@@ -338,9 +339,10 @@ void read_text() {
 
   N = len(phrase_freqs); // number of phrases
 
+  IntIntIntMapMap left_phrases_temp; 
+  IntIntIntMapMap right_phrases_temp; 
+
   track_block("Finding left/right phrases", "", false) {
-    left_phrases.resize(N);
-    right_phrases.resize(N);
     for(int l = 1; l <= plen; l++) {
       for(int i = 0; i < T-l+1; i++) {
         IntVec a_vec = subvector(text, i, i+l);
@@ -352,7 +354,7 @@ void read_text() {
           IntVec aa_vec = subvector(text, i-ll, i);
           if(!contains(vec2phrase, aa_vec)) continue;
           int aa = vec2phrase[aa_vec];
-          left_phrases[a].push_back(aa);
+          left_phrases_temp[a][aa]++;
           //logs(i << ' ' << Cluster(a) << " L");
         }
 
@@ -361,14 +363,30 @@ void read_text() {
           IntVec aa_vec = subvector(text, i+l, i+l+ll);
           if(!contains(vec2phrase, aa_vec)) continue;
           int aa = vec2phrase[aa_vec];
-          right_phrases[a].push_back(aa);
+          right_phrases_temp[a][aa]++;
           //logs(i << ' ' << Cluster(a) << " R");
         }
       }
     }
+
+    left_phrases.resize(N);
+    right_phrases.resize(N);
+
+	forcmap(int, a, IntIntMap, m, IntIntIntMapMap, left_phrases_temp) {
+	  forcmap(int, b, int, c, IntIntMap, m) {
+		left_phrases[a].push_back(IntPair(b,c)); 
+	  }
+	}
+
+	forcmap(int, a, IntIntMap, m, IntIntIntMapMap, right_phrases_temp) {
+	  forcmap(int, b, int, c, IntIntMap, m) {
+		right_phrases[a].push_back(IntPair(b,c)); 
+	  }
+	}   
   }
 
-#if 1
+#if 0
+  // TODO: FIX ME!
   if(!featvec_file.empty()) {
     ofstream out(featvec_file.c_str());
     out << N << ' ' << 2*N << endl;
@@ -384,13 +402,13 @@ void read_text() {
   }
 #endif
 
-#if 0
+#if 1
   foridx(a, N) {
     track("", Cluster(a), true);
-    forvec(_, int, b, left_phrases[a])
-      logs("LEFT " << Cluster(b));
-    forvec(_, int, b, right_phrases[a])
-      logs("RIGHT " << Cluster(b));
+    forvec(_, IntPair, b, left_phrases[a])
+      logs("LEFT " << Cluster(b.first) << ":" << b.second);
+    forvec(_, IntPair, b, right_phrases[a])
+      logs("RIGHT " << Cluster(b.first) << ":" << b.second);
   }
 #endif
 
@@ -545,16 +563,14 @@ void create_initial_clusters() {
   // Compute p2, q2, curr_minfo
   FOR_SLOT(s) {
     int a = slot2cluster[s];
-    IntIntMap right_phrase_freqs;
 
     // Find collocations of (a, b), where both are clusters.
-    forvec(_, int, b, right_phrases[a])
-      if(contains(cluster2slot, b))
-        right_phrase_freqs[b]++;
+    forvec(_, IntPair, b, right_phrases[a]) {
+	  
+      if(!contains(cluster2slot, b.first)) continue;
 
-    forcmap(int, b, int, count, IntIntMap, right_phrase_freqs) {
-      int t = cluster2slot[b];
-      curr_minfo += set_p2_q2_from_count(s, t, count);
+      int t = cluster2slot[b.first];
+      curr_minfo += set_p2_q2_from_count(s, t, b.second);
     }
   }
 }
@@ -612,12 +628,13 @@ void incorporate_new_phrase(int a) {
   // Compute p2, q2 between a and everything in clusters
   IntIntMap freqs;
   freqs.clear(); // right bigrams
-  forvec(_, int, b, right_phrases[a]) {
-    b = phrase2rep.GetRoot(b);
-    if(!contains(rep2cluster, b)) continue;
-    b = rep2cluster[b];
-    if(!contains(cluster2slot, b)) continue;
-    freqs[b]++;
+  forvec(_, IntPair, b, right_phrases[a]) {
+	int c; 
+    c = phrase2rep.GetRoot(b.first);
+    if(!contains(rep2cluster, c)) continue;
+    c = rep2cluster[c];
+    if(!contains(cluster2slot, c)) continue;
+    freqs[c]+=b.second;
   }
   forcmap(int, b, int, count, IntIntMap, freqs) {
     curr_minfo += set_p2_q2_from_count(cluster2slot[a], cluster2slot[b], count);
@@ -625,12 +642,13 @@ void incorporate_new_phrase(int a) {
   }
 
   freqs.clear(); // left bigrams
-  forvec(_, int, b, left_phrases[a]) {
-    b = phrase2rep.GetRoot(b);
-    if(!contains(rep2cluster, b)) continue;
-    b = rep2cluster[b];
-    if(!contains(cluster2slot, b)) continue;
-    freqs[b]++;
+  forvec(_, IntPair, b, left_phrases[a]) {
+	int c;
+    c = phrase2rep.GetRoot(b.first);
+    if(!contains(rep2cluster, c)) continue;
+    c = rep2cluster[c];
+    if(!contains(cluster2slot, c)) continue;
+    freqs[c]+=b.second;
   }
   forcmap(int, b, int, count, IntIntMap, freqs) {
     curr_minfo += set_p2_q2_from_count(cluster2slot[b], cluster2slot[a], count);
@@ -812,11 +830,11 @@ void compute_cluster_distribs() {
   // Compute cluster distributions
   foridx(a, N) {
     int ca = phrase2cluster(a);
-    forvec(_, int, b, right_phrases[a]) {
-      int cb = phrase2cluster(b);
-      count2[IntPair(ca, cb)]++;
-      count1[ca]++;
-      count1[cb]++;
+    forvec(_, IntPair, b, right_phrases[a]) {
+      int cb = phrase2cluster(b.first);
+      count2[IntPair(ca, cb)]+=b.second;
+      count1[ca]+=b.second;
+      count1[cb]+=b.second;
     }
   }
 
@@ -831,20 +849,20 @@ void compute_cluster_distribs() {
 
     // Left distribution
     a_count2.clear(), a_count1 = 0;
-    forvec(_, int, b, left_phrases[a]) {
-      int cb = phrase2cluster(b);
-      a_count2[cb]++;
-      a_count1++;
+    forvec(_, IntPair, b, left_phrases[a]) {
+      int cb = phrase2cluster(b.first);
+      a_count2[cb]+=b.second;
+      a_count1+=b.second;
     }
     kl = kl_map[0][a] = kl_divergence(a_count2, a_count1, count2, count1, ca, false);
     //logs("Left-KL(" << Phrase(a) << " | " << Cluster(ca) << ") = " << kl);
 
     // Right distribution
     a_count2.clear(), a_count1 = 0;
-    forvec(_, int, b, right_phrases[a]) {
-      int cb = phrase2cluster(b);
-      a_count2[cb]++;
-      a_count1++;
+    forvec(_, IntPair, b, right_phrases[a]) {
+      int cb = phrase2cluster(b.first);
+      a_count2[cb]+=b.second;
+      a_count1+=b.second;
     }
     kl = kl_map[1][a] = kl_divergence(a_count2, a_count1, count2, count1, ca, true);
     //logs("Right-KL(" << Phrase(a) << " | " << Cluster(ca) << ") = " << kl);

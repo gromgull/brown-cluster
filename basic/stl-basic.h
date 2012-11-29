@@ -14,6 +14,8 @@ typedef pair<int, real> IntDouble;
 typedef pair<real, int> DoubleInt;
 typedef pair<real, real> DoublePair;
 typedef vector<IntPair> IntPairVec;
+typedef vector<IntPairVec> IntPairVecVec ; 
+
 typedef vector<DoubleInt> DoubleIntVec;
 typedef vector<bool> BoolVec;
 typedef vector<int> IntVec;
