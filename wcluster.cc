@@ -43,6 +43,7 @@ vector< OptInfo<string> > string_opts;
 
 opt_define_string(output_dir,    "output_dir", "",         "Output everything to this directory.");
 opt_define_string(text_file,     "text", "",               "Text file with corpora (input).");
+opt_define_string(sparse_file,     "sparse", "",               "Filename stem of sparse co-occurence matrix to read in (input).");
 opt_define_string(restrict_file, "restrict", "",           "Only consider words that appear in this text (input).");
 opt_define_string(paths_file,    "paths", "",              "File containing root-to-node paths in the clustering tree (input/output).");
 opt_define_string(map_file,      "map", "",                "File containing lots of good information about each phrase, more general than paths (output)");
@@ -304,6 +305,56 @@ IntVec text;
 void read_text_process_word(int w) {
   text.push_back(w);
 }
+
+
+void read_sparse() { 
+  // must populate : 
+  // db - int<=>word
+
+  // phrases - length=>list of phrases, each again a vector of ints
+  // vec2phrase - map phrase to phrase_id
+  // phrase_freqs - phrase_id => counts 
+  // left_phrases/right_phrases
+
+  db.read((sparse_file+"_labels").c_str(), true); // one per line
+  phrases.resize(2); // phrases[0] is empty  
+  T=db.size();
+  N=T;
+
+  cout << "read "<<T<< " terms"<<endl;
+  
+  foridx(i, T) {
+	IntVec v(1);
+	v[0]=i;	 
+	vec2phrase[v]=i;
+	phrases[1].push_back(i);	
+  }
+
+  // read word frequencies from a file
+  phrase_freqs.resize(T);
+  
+  ifstream f((sparse_file+"_freqs").c_str());
+  int c,i=0;
+  while (f >> c) phrase_freqs[i++]=c;
+  f.close();
+
+
+  // read word-co-occ
+  right_phrases.resize(T);
+  left_phrases.resize(T);
+  f.open((sparse_file+"_cooccs").c_str());
+  int w1,w2;
+  while (f>>w1>>w2>>c) {
+	right_phrases[w1].push_back(IntPair(w2,c));
+	//left_phrases[w2].push_back(IntPair(w1,c));
+  }
+  f.close();
+
+  initC = min(initC, N);
+
+}
+
+
 void read_text() {
   track("read_text()", "", false);
 
@@ -563,7 +614,7 @@ void create_initial_clusters() {
   // Compute p2, q2, curr_minfo
   FOR_SLOT(s) {
     int a = slot2cluster[s];
-
+	// TODO:  why does this only consider right_phrases?
     // Find collocations of (a, b), where both are clusters.
     forvec(_, IntPair, b, right_phrases[a]) {
 	  
@@ -1061,11 +1112,14 @@ void output_cluster_paths() {
 int main(int argc, char *argv[]) {
   init_opt(argc, argv);
 
-  assert(file_exists(text_file.c_str()));
+  assert(file_exists(text_file.c_str()) || file_exists((sparse_file+"_labels").c_str()));
 
   // Set output_dir from arguments.
   if(output_dir.empty()) {
-    output_dir = file_base(strip_dir(text_file));
+	if (text_file!="")
+	  output_dir = file_base(strip_dir(text_file));
+	if (sparse_file!="") 
+	  output_dir = file_base(strip_dir(sparse_file));
     output_dir += str_printf("-c%d", initC);
     output_dir += str_printf("-p%d", plen);
     if(!restrict_file.empty()) output_dir += str_printf("-R%s", file_base(strip_dir(restrict_file)).c_str());
@@ -1105,7 +1159,19 @@ int main(int argc, char *argv[]) {
   track_mem(L2);
 
   read_restrict_text();
-  read_text();
+
+  if (text_file!="") {
+	read_text();
+  } else 
+	if (sparse_file!="") {
+	  read_sparse(); 
+	} else {
+	  cerr << "No input!" << endl; 
+	  return 1;
+	}
+
+  
+
   if(featvec_file.empty()) {
     if(paths2map)
       convert_paths_to_map();

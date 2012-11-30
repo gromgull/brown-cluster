@@ -10,7 +10,7 @@ wcluster: $(files)
 	g++ -Wall -g -o wcluster $(files)
 
 %.o: %.cc
-	g++ -Wall -g -o $@ -c $<
+	g++ -g -Wall -g -o $@ -c $<
 
 clean:
 	rm wcluster basic/*.o *.o
